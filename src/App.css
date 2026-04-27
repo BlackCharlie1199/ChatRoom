@@ -1,38 +1,230 @@
-.App {
+/* src/App.css */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #f5f5f5;
+}
+
+/* 登入畫面 */
+.login-container {
+  max-width: 350px;
+  margin: 100px auto;
+  padding: 30px;
+  background: white;
+  border-radius: 10px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
   text-align: center;
 }
 
-.App-logo {
-  height: 40vmin;
-  pointer-events: none;
+.login-input {
+  width: 100%;
+  padding: 12px;
+  margin-bottom: 15px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .App-logo {
-    animation: App-logo-spin infinite 20s linear;
-  }
+.btn-primary {
+  background-color: #06C755; /* LINE 綠 */
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: bold;
 }
 
-.App-header {
-  background-color: #282c34;
-  min-height: 100vh;
+/* 整個 APP 的主排版 */
+.app-container {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* 左側：聯絡人列表 */
+.sidebar {
+  width: 300px;
+  background-color: #ffffff;
   display: flex;
   flex-direction: column;
+  border-right: 1px solid #e0e0e0;
+}
+
+.sidebar-header {
+  background-color: #06C755;
+  color: white;
+  padding: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: bold;
+  font-size: 1.2rem;
+}
+
+.logout-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: white;
+  padding: 5px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.user-list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.user-item {
+  padding: 15px 20px;
+  border-bottom: 1px solid #f5f5f5;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  transition: background 0.2s;
+}
+
+.user-item:hover {
+  background-color: #f9f9f9;
+}
+
+.user-item.active {
+  background-color: #e5f9ed;
+  border-left: 4px solid #06C755;
+}
+
+.user-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: #ccc;
+  margin-right: 15px;
+  display: flex;
   align-items: center;
   justify-content: center;
-  font-size: calc(10px + 2vmin);
   color: white;
+  font-weight: bold;
 }
 
-.App-link {
-  color: #61dafb;
+/* 右側：聊天室區域 */
+.chat-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background-color: #7490c4; /* LINE 經典聊天室藍色 */
 }
 
-@keyframes App-logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+.chat-header {
+  background-color: #ffffff;
+  padding: 15px 20px;
+  font-weight: bold;
+  font-size: 1.1rem;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  z-index: 10;
+}
+
+.messages-container {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+/* 訊息泡泡排版 */
+.message-wrapper {
+  display: flex;
+  flex-direction: column;
+  max-width: 60%;
+}
+
+.message-wrapper.mine {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.message-wrapper.other {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+
+.message-sender {
+  font-size: 12px;
+  color: #e2e8f0;
+  margin-bottom: 4px;
+  margin-left: 5px;
+}
+
+.message-wrapper.mine .message-sender {
+  display: none; /* 自己傳的不用顯示名字 */
+}
+
+.message-bubble {
+  padding: 10px 15px;
+  border-radius: 18px;
+  font-size: 15px;
+  line-height: 1.4;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+.message-wrapper.mine .message-bubble {
+  background-color: #85e04f; /* LINE 自己傳的綠色 */
+  color: black;
+  border-top-right-radius: 4px; /* 讓右上角有點尖尖的，像對話框 */
+}
+
+.message-wrapper.other .message-bubble {
+  background-color: #ffffff; /* LINE 別人傳的白色 */
+  color: black;
+  border-top-left-radius: 4px; /* 讓左上角有點尖尖的 */
+}
+
+/* 底部輸入框 */
+.input-area {
+  background-color: #ffffff;
+  padding: 12px 20px;
+  display: flex;
+  gap: 10px;
+}
+
+.chat-input {
+  flex: 1;
+  padding: 12px 20px;
+  border: none;
+  background-color: #f0f0f0;
+  border-radius: 20px;
+  font-size: 15px;
+  outline: none;
+}
+
+.send-btn {
+  background-color: transparent;
+  color: #06C755;
+  border: none;
+  font-weight: bold;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 10px;
+}
+
+.send-btn:disabled {
+  color: #ccc;
+  cursor: not-allowed;
+}
+
+.empty-chat {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255,255,255,0.7);
+  font-size: 1.2rem;
 }

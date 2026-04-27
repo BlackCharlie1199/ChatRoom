@@ -1,47 +1,46 @@
 // src/App.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { auth, provider, db } from './firebase'; 
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, signInWithPopup } from 'firebase/auth';
-import { doc, setDoc, getDoc, collection, query, onSnapshot, addDoc, serverTimestamp, orderBy, where, getDocs } from 'firebase/firestore';
+import { doc, setDoc, getDoc, collection, query, onSnapshot, addDoc, serverTimestamp, orderBy, getDocs } from 'firebase/firestore';
+import './App.css'; // 【新增】：引入我們寫好的 LINE 風格 CSS
 
 function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [user, setUser] = useState(null);
   
-  // 聊天室相關狀態
-  const [users, setUsers] = useState([]); // 儲存所有使用者
-  const [selectedChatId, setSelectedChatId] = useState(null); // 當前選中的聊天室 ID
-  const [messages, setMessages] = useState([]); // 當前聊天室的訊息
-  const [newMessage, setNewMessage] = useState(""); // 輸入框文字
+  const [users, setUsers] = useState([]); 
+  const [selectedChatUser, setSelectedChatUser] = useState(null); // 改存選中的使用者物件，方便顯示名字
+  const [selectedChatId, setSelectedChatId] = useState(null); 
+  const [messages, setMessages] = useState([]); 
+  const [newMessage, setNewMessage] = useState(""); 
+  const messagesEndRef = useRef(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
-      if (currentUser) {
-        fetchAllUsers(); // 登入後抓取所有使用者清單
-      }
+      if (currentUser) fetchAllUsers(); 
     });
     return () => unsubscribe();
   }, []);
 
-  // 監聽當前選中聊天室的訊息變化 (即時更新)
   useEffect(() => {
     if (!selectedChatId) return;
-
     const q = query(
       collection(db, "chats", selectedChatId, "messages"),
       orderBy("createdAt", "asc")
     );
-
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
-
     return () => unsubscribe();
   }, [selectedChatId]);
 
-  // 抓取所有註冊使用者 (除了自己)
   const fetchAllUsers = async () => {
     const q = query(collection(db, "users"));
     const querySnapshot = await getDocs(q);
@@ -68,96 +67,132 @@ function App() {
     }
   };
 
-  // 建立或進入與特定對象的聊天室
   const startChat = async (targetUser) => {
-    // 簡單邏輯：使用雙方 UID 組合來當 ID，確保唯一性
     const chatId = [auth.currentUser.uid, targetUser.uid].sort().join("_");
     const chatRef = doc(db, "chats", chatId);
     const chatSnap = await getDoc(chatRef);
 
     if (!chatSnap.exists()) {
-      // 如果聊天室不存在，建立新房間
       await setDoc(chatRef, {
         members: [auth.currentUser.uid, targetUser.uid],
         createdAt: serverTimestamp(),
-        type: "private" // 標記為私人聊天 
+        type: "private" 
       });
     }
     setSelectedChatId(chatId);
+    setSelectedChatUser(targetUser); // 記錄點選了誰，標題才顯示得出來
   };
 
-  // 發送訊息
   const sendMessage = async (e) => {
     e.preventDefault();
-    if (newMessage.trim() === "" || !selectedChatId) return;
+    
+    // 1. 先把使用者輸入的文字存到一個暫時的變數裡
+    const textToSend = newMessage.trim();
+    if (textToSend === "" || !selectedChatId) return;
 
-    await addDoc(collection(db, "chats", selectedChatId, "messages"), {
-      text: newMessage,
-      senderId: auth.currentUser.uid,
-      senderEmail: auth.currentUser.email,
-      createdAt: serverTimestamp()
-    });
     setNewMessage("");
+
+    try {
+      await addDoc(collection(db, "chats", selectedChatId, "messages"), {
+        text: textToSend, // 這裡要改用我們剛剛存的變數
+        senderId: auth.currentUser.uid,
+        senderEmail: auth.currentUser.email,
+        createdAt: serverTimestamp()
+      });
+    } catch (error) {
+      console.error("發送失敗", error);
+      alert("訊息發送失敗，請檢查網路連線！");
+      setNewMessage(textToSend); 
+    }
   };
 
-  // --- 以下為原本的 Auth 邏輯 (省略 handleLogin, handleRegister, handleGoogleLogin, handleLogout 以節省空間，請保留你原本的實作) ---
+  // Auth Functions
   const handleRegister = async () => { try { const res = await createUserWithEmailAndPassword(auth, email, password); await saveUserToFirestore(res.user); } catch (e) { alert(e.message); } };
   const handleLogin = async () => { try { await signInWithEmailAndPassword(auth, email, password); } catch (e) { alert(e.message); } };
   const handleGoogleLogin = async () => { try { const res = await signInWithPopup(auth, provider); await saveUserToFirestore(res.user); } catch (e) { alert(e.message); } };
-  const handleLogout = async () => { await signOut(auth); setSelectedChatId(null); };
+  const handleLogout = async () => { await signOut(auth); setSelectedChatId(null); setSelectedChatUser(null); };
+
+  // --- 畫面渲染 ---
+  if (!user) {
+    return (
+      <div className="login-container">
+        <h1 style={{ color: "#06C755" }}>NTHU Chat</h1>
+        <h3 style={{ color: "#555" }}>請先登入</h3>
+        <input className="login-input" type="email" placeholder="信箱" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <input className="login-input" type="password" placeholder="密碼" value={password} onChange={(e) => setPassword(e.target.value)} />
+        <div>
+          <button className="btn-primary" onClick={handleLogin}>登入</button>
+          <button className="btn-primary" onClick={handleRegister} style={{ marginLeft: "10px", backgroundColor: "#555" }}>註冊</button>
+        </div>
+        <hr style={{ margin: "20px 0", border: "0.5px solid #eee" }} />
+        <button onClick={handleGoogleLogin} style={{ width: "100%", padding: "10px", background: "white", border: "1px solid #ddd", borderRadius: "5px", cursor: "pointer", fontWeight: "bold" }}>
+          使用 Google 登入
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ padding: "20px", fontFamily: "sans-serif", display: "flex", gap: "20px" }}>
-      {!user ? (
-        <div style={{ maxWidth: "400px" }}>
-          <h1>NTHU 聊天室</h1>
-          <h3>請先登入或註冊</h3>
-          <input type="email" placeholder="信箱" value={email} onChange={(e) => setEmail(e.target.value)} /><br /><br />
-          <input type="password" placeholder="密碼" value={password} onChange={(e) => setPassword(e.target.value)} /><br /><br />
-          <button onClick={handleLogin}>登入</button>
-          <button onClick={handleRegister} style={{ marginLeft: "10px" }}>註冊</button>
-          <button onClick={handleGoogleLogin} style={{ marginTop: "10px", display: "block" }}>使用 Google 登入</button>
+    <div className="app-container">
+      {/* 左側：聯絡人列表 */}
+      <div className="sidebar">
+        <div className="sidebar-header">
+          <span>好友列表</span>
+          <button className="logout-btn" onClick={handleLogout}>登出</button>
         </div>
-      ) : (
-        <>
-          {/* 左側：使用者清單 */}
-          <div style={{ width: "250px", borderRight: "1px solid #ddd", paddingRight: "20px" }}>
-            <h3>聯絡人</h3>
-            {users.map(u => (
-              <div key={u.uid} onClick={() => startChat(u)} style={{ padding: "10px", cursor: "pointer", backgroundColor: selectedChatId?.includes(u.uid) ? "#f0f0f0" : "transparent" }}>
-                {u.displayName || u.email}
-              </div>
-            ))}
-            <hr />
-            <button onClick={handleLogout}>登出</button>
-          </div>
+        <div className="user-list">
+          {users.map(u => (
+            <div 
+              key={u.uid} 
+              className={`user-item ${selectedChatUser?.uid === u.uid ? 'active' : ''}`}
+              onClick={() => startChat(u)}
+            >
+              <div className="user-avatar">{u.email.charAt(0).toUpperCase()}</div>
+              <div>{u.displayName || u.email.split('@')[0]}</div>
+            </div>
+          ))}
+        </div>
+      </div>
 
-          {/* 右側：對話視窗 */}
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "80vh" }}>
-            {selectedChatId ? (
-              <>
-                <h3>對話中 ({selectedChatId})</h3>
-                <div style={{ flex: 1, overflowY: "scroll", border: "1px solid #ddd", padding: "10px", marginBottom: "10px" }}>
-                  {messages.map(m => (
-                    <div key={m.id} style={{ textAlign: m.senderId === auth.currentUser.uid ? "right" : "left", margin: "5px 0" }}>
-                      <div style={{ fontSize: "12px", color: "#888" }}>{m.senderEmail}</div>
-                      <div style={{ display: "inline-block", padding: "8px", borderRadius: "10px", backgroundColor: m.senderId === auth.currentUser.uid ? "#0084ff" : "#eee", color: m.senderId === auth.currentUser.uid ? "white" : "black" }}>
-                        {m.text}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <form onSubmit={sendMessage} style={{ display: "flex" }}>
-                  <input style={{ flex: 1, padding: "10px" }} value={newMessage} onChange={(e) => setNewMessage(e.target.value)} placeholder="輸入訊息..." />
-                  <button type="submit">發送</button>
-                </form>
-              </>
-            ) : (
-              <div style={{ textAlign: "center", marginTop: "100px", color: "#888" }}>點擊左側聯絡人開始聊天</div>
-            )}
+      {/* 右側：聊天室區域 */}
+      <div className="chat-area">
+        {selectedChatId ? (
+          <>
+            <div className="chat-header">
+              {selectedChatUser?.displayName || selectedChatUser?.email}
+            </div>
+            
+            <div className="messages-container">
+              {messages.map(m => {
+                const isMine = m.senderId === auth.currentUser.uid;
+                return (
+                  <div key={m.id} className={`message-wrapper ${isMine ? 'mine' : 'other'}`}>
+                    <div className="message-sender">{m.senderEmail.split('@')[0]}</div>
+                    <div className="message-bubble">{m.text}</div>
+                  </div>
+                );
+              })}
+              <div ref={messagesEndRef} />
+            </div>
+
+            <form className="input-area" onSubmit={sendMessage}>
+              <input 
+                className="chat-input"
+                value={newMessage} 
+                onChange={(e) => setNewMessage(e.target.value)} 
+                placeholder="輸入訊息..." 
+              />
+              <button type="submit" className="send-btn" disabled={!newMessage.trim()}>
+                傳送
+              </button>
+            </form>
+          </>
+        ) : (
+          <div className="empty-chat">
+            請選擇左側的好友開始聊天
           </div>
-        </>
-      )}
+        )}
+      </div>
     </div>
   );
 }
