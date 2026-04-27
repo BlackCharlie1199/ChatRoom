@@ -1,9 +1,10 @@
 // src/App.js
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { auth, provider, db } from './firebase'; 
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, signInWithPopup } from 'firebase/auth';
-import { doc, setDoc, getDoc, collection, query, onSnapshot, addDoc, serverTimestamp, orderBy, getDocs } from 'firebase/firestore';
-import './App.css'; // 【新增】：引入我們寫好的 LINE 風格 CSS
+// 【修改這裡】：多匯入 deleteDoc 和 updateDoc
+import { doc, setDoc, getDoc, collection, query, onSnapshot, addDoc, serverTimestamp, orderBy, getDocs, deleteDoc, updateDoc } from 'firebase/firestore';
+import './App.css'; 
 
 function App() {
   const [email, setEmail] = useState("");
@@ -11,15 +12,16 @@ function App() {
   const [user, setUser] = useState(null);
   
   const [users, setUsers] = useState([]); 
-  const [selectedChatUser, setSelectedChatUser] = useState(null); // 改存選中的使用者物件，方便顯示名字
+  const [selectedChatUser, setSelectedChatUser] = useState(null); 
   const [selectedChatId, setSelectedChatId] = useState(null); 
   const [messages, setMessages] = useState([]); 
   const [newMessage, setNewMessage] = useState(""); 
-  const messagesEndRef = useRef(null);
 
-  useEffect(() => {
+  const messagesEndRef = React.useRef(null);
+
+  const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -40,6 +42,10 @@ function App() {
     });
     return () => unsubscribe();
   }, [selectedChatId]);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
 
   const fetchAllUsers = async () => {
     const q = query(collection(db, "users"));
@@ -80,29 +86,57 @@ function App() {
       });
     }
     setSelectedChatId(chatId);
-    setSelectedChatUser(targetUser); // 記錄點選了誰，標題才顯示得出來
+    setSelectedChatUser(targetUser); 
   };
 
   const sendMessage = async (e) => {
     e.preventDefault();
-    
-    // 1. 先把使用者輸入的文字存到一個暫時的變數裡
     const textToSend = newMessage.trim();
     if (textToSend === "" || !selectedChatId) return;
-
     setNewMessage("");
 
     try {
       await addDoc(collection(db, "chats", selectedChatId, "messages"), {
-        text: textToSend, // 這裡要改用我們剛剛存的變數
+        text: textToSend,
         senderId: auth.currentUser.uid,
         senderEmail: auth.currentUser.email,
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
+        isEdited: false // 新增時標記為未編輯
       });
     } catch (error) {
       console.error("發送失敗", error);
       alert("訊息發送失敗，請檢查網路連線！");
       setNewMessage(textToSend); 
+    }
+  };
+
+  // 【新增邏輯】：收回訊息
+  const handleUnsend = async (msgId) => {
+    // 再次確認是否要收回
+    if (window.confirm("確定要收回這則訊息嗎？")) {
+      try {
+        await deleteDoc(doc(db, "chats", selectedChatId, "messages", msgId));
+      } catch (error) {
+        alert("收回失敗：" + error.message);
+      }
+    }
+  };
+
+  // 【新增邏輯】：編輯訊息
+  const handleEdit = async (msgId, currentText) => {
+    // 彈出對話框讓使用者修改文字
+    const newText = window.prompt("編輯訊息：", currentText);
+    
+    // 確保有輸入新文字，且跟原本的不一樣才去更新資料庫
+    if (newText !== null && newText.trim() !== "" && newText !== currentText) {
+      try {
+        await updateDoc(doc(db, "chats", selectedChatId, "messages", msgId), {
+          text: newText.trim(),
+          isEdited: true // 標記這則訊息已經被編輯過了
+        });
+      } catch (error) {
+        alert("編輯失敗：" + error.message);
+      }
     }
   };
 
@@ -112,7 +146,6 @@ function App() {
   const handleGoogleLogin = async () => { try { const res = await signInWithPopup(auth, provider); await saveUserToFirestore(res.user); } catch (e) { alert(e.message); } };
   const handleLogout = async () => { await signOut(auth); setSelectedChatId(null); setSelectedChatUser(null); };
 
-  // --- 畫面渲染 ---
   if (!user) {
     return (
       <div className="login-container">
@@ -134,7 +167,6 @@ function App() {
 
   return (
     <div className="app-container">
-      {/* 左側：聯絡人列表 */}
       <div className="sidebar">
         <div className="sidebar-header">
           <span>好友列表</span>
@@ -142,11 +174,7 @@ function App() {
         </div>
         <div className="user-list">
           {users.map(u => (
-            <div 
-              key={u.uid} 
-              className={`user-item ${selectedChatUser?.uid === u.uid ? 'active' : ''}`}
-              onClick={() => startChat(u)}
-            >
+            <div key={u.uid} className={`user-item ${selectedChatUser?.uid === u.uid ? 'active' : ''}`} onClick={() => startChat(u)}>
               <div className="user-avatar">{u.email.charAt(0).toUpperCase()}</div>
               <div>{u.displayName || u.email.split('@')[0]}</div>
             </div>
@@ -154,7 +182,6 @@ function App() {
         </div>
       </div>
 
-      {/* 右側：聊天室區域 */}
       <div className="chat-area">
         {selectedChatId ? (
           <>
@@ -168,29 +195,38 @@ function App() {
                 return (
                   <div key={m.id} className={`message-wrapper ${isMine ? 'mine' : 'other'}`}>
                     <div className="message-sender">{m.senderEmail.split('@')[0]}</div>
-                    <div className="message-bubble">{m.text}</div>
+                    
+                    {/* 【修改畫面】：將泡泡和按鈕包在一起排版 */}
+                    <div style={{ display: "flex", alignItems: "flex-end", gap: "5px", flexDirection: isMine ? "row-reverse" : "row" }}>
+                      
+                      <div className="message-bubble">
+                        {m.text}
+                        {/* 如果被編輯過，顯示一個小小的標記 */}
+                        {m.isEdited && <span style={{ fontSize: "10px", color: isMine ? "#444" : "#999", marginLeft: "6px" }}>(已編輯)</span>}
+                      </div>
+
+                      {/* 如果是我的訊息，才顯示編輯與收回的按鈕 */}
+                      {isMine && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                          <button onClick={() => handleUnsend(m.id)} style={{ border: "none", background: "transparent", color: "#ff4d4f", fontSize: "12px", cursor: "pointer", padding: "0" }}>收回</button>
+                          <button onClick={() => handleEdit(m.id, m.text)} style={{ border: "none", background: "transparent", color: "#666", fontSize: "12px", cursor: "pointer", padding: "0" }}>編輯</button>
+                        </div>
+                      )}
+
+                    </div>
                   </div>
                 );
               })}
-              <div ref={messagesEndRef} />
+              <div ref={messagesEndRef} /> 
             </div>
 
             <form className="input-area" onSubmit={sendMessage}>
-              <input 
-                className="chat-input"
-                value={newMessage} 
-                onChange={(e) => setNewMessage(e.target.value)} 
-                placeholder="輸入訊息..." 
-              />
-              <button type="submit" className="send-btn" disabled={!newMessage.trim()}>
-                傳送
-              </button>
+              <input className="chat-input" value={newMessage} onChange={(e) => setNewMessage(e.target.value)} placeholder="輸入訊息..." />
+              <button type="submit" className="send-btn" disabled={!newMessage.trim()}>傳送</button>
             </form>
           </>
         ) : (
-          <div className="empty-chat">
-            請選擇左側的好友開始聊天
-          </div>
+          <div className="empty-chat">請選擇左側的好友開始聊天</div>
         )}
       </div>
     </div>
