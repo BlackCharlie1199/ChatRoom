@@ -22,7 +22,6 @@ function App() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
 
-  // --- Profile 狀態 ---
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [editName, setEditName] = useState("");
   const [editAvatar, setEditAvatar] = useState("");
@@ -32,17 +31,16 @@ function App() {
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
   const [currentUserData, setCurrentUserData] = useState(null); 
 
-  // --- 手繪貼圖 狀態 ---
   const [isDrawingMode, setIsDrawingMode] = useState(false);
   const [brushColor, setBrushColor] = useState("#FF0000"); 
   const [brushSize, setBrushSize] = useState(5); 
+  const [brushType, setBrushType] = useState("normal"); 
   const canvasRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const chatAreaRef = useRef(null); 
 
   const [reactingMsgId, setReactingMsgId] = useState(null);
 
-  // --- 群組聊天與邀請狀態 ---
   const [groups, setGroups] = useState([]);
   const [isInviteOpen, setIsInviteOpen] = useState(false);
 
@@ -125,8 +123,6 @@ function App() {
       canvas.width = chatAreaRef.current.clientWidth;
       canvas.height = chatAreaRef.current.clientHeight;
       const ctx = canvas.getContext('2d');
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
       ctx.clearRect(0, 0, canvas.width, canvas.height); 
     }
   }, [isDrawingMode]);
@@ -311,6 +307,7 @@ function App() {
     e.target.value = null; 
   };
 
+  // --- 【修改】：重構繪圖邏輯以支援噴漆效果 ---
   const startDrawing = (e) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -318,8 +315,28 @@ function App() {
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    ctx.beginPath();
-    ctx.moveTo(x, y);
+
+    ctx.strokeStyle = brushColor;
+    ctx.fillStyle = brushColor; // 噴漆會用到 fillStyle
+    ctx.lineWidth = brushSize;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+
+    // 重置所有特效，避免切換筆刷時互相干擾
+    ctx.globalAlpha = 1.0;
+    ctx.shadowBlur = 0;    
+
+    if (brushType === 'glow') {
+      ctx.shadowBlur = 15;   
+      ctx.shadowColor = brushColor;
+    }
+
+    if (brushType !== 'spray') {
+      // 如果不是噴漆，才需要開啟連續路徑
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+    }
+    
     setIsDrawing(true);
   };
 
@@ -330,17 +347,41 @@ function App() {
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    ctx.strokeStyle = brushColor;
-    ctx.lineWidth = brushSize;
-    ctx.lineTo(x, y);
-    ctx.stroke();
+    
+    if (brushType === 'spray') {
+      // 噴漆邏輯：在滑鼠周圍隨機產生細小的粒子
+      // 密度與噴漆範圍根據 brushSize 調整
+      const density = brushSize * 4; 
+      const sprayRadius = brushSize * 1.5; 
+      
+      for (let i = 0; i < density; i++) {
+        // 利用圓極座標隨機散佈粒子
+        const angle = Math.random() * Math.PI * 2;
+        const radius = Math.random() * sprayRadius;
+        const dotX = x + Math.cos(angle) * radius;
+        const dotY = y + Math.sin(angle) * radius;
+        
+        // 畫出微小的方塊當作噴漆粒子
+        ctx.fillRect(dotX, dotY, 1.5, 1.5); 
+      }
+    } else {
+      // 一般與發光筆邏輯：連續畫線
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      
+      // 畫完重啟路徑，避免重複疊加
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+    }
   };
 
   const stopDrawing = () => {
     if (isDrawing) {
       const canvas = canvasRef.current;
       const ctx = canvas.getContext('2d');
-      ctx.closePath();
+      if (brushType !== 'spray') {
+        ctx.closePath();
+      }
       setIsDrawing(false);
     }
   };
@@ -645,7 +686,6 @@ function App() {
                   return (
                     <div key={m.id} className={`message-wrapper ${isMine ? 'mine' : 'other'}`} style={{ display: 'flex', flexDirection: isMine ? 'row-reverse' : 'row', alignItems: 'flex-end', maxWidth: '100%', marginBottom: "15px" }}>
                       
-                      {/* 【修正】：移除 !m.isCustomSticker 判斷，確保頭像隨時都會顯示出來 */}
                       {!isMine && (
                         <div style={{ marginRight: '10px', marginBottom: '15px' }}>
                           {avatar ? (
@@ -659,8 +699,6 @@ function App() {
                       )}
 
                       <div style={{ display: 'flex', flexDirection: 'column', maxWidth: m.isCustomSticker ? '100%' : '70%', alignItems: isMine ? 'flex-end' : 'flex-start' }}>
-                        
-                        {/* 【修正】：移除 !m.isCustomSticker 判斷，確保寄件者的名字會顯示出來 */}
                         <div className="message-sender" style={{ marginLeft: 0, marginRight: 0 }}>{displayName}</div>
                         
                         <div style={{ display: "flex", alignItems: "flex-end", gap: "5px", flexDirection: isMine ? "row-reverse" : "row" }}>
@@ -725,6 +763,18 @@ function App() {
                 <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 50, backgroundColor: "rgba(255, 255, 255, 0.8)", cursor: "crosshair" }}>
                    <div style={{ position: "absolute", top: "10px", left: "50%", transform: "translateX(-50%)", background: "white", padding: "10px 20px", borderRadius: "20px", display: "flex", gap: "15px", alignItems: "center", boxShadow: "0 4px 12px rgba(0,0,0,0.1)", zIndex: 60 }}>
                       <span style={{ fontSize: "14px", fontWeight: "bold", color: "#555" }}>🎨 畫貼圖</span>
+                      
+                      {/* 【修改】：將「螢光筆」替換為「噴漆」 */}
+                      <select 
+                        value={brushType} 
+                        onChange={(e) => setBrushType(e.target.value)} 
+                        style={{ padding: "4px 8px", borderRadius: "5px", border: "1px solid #ccc", outline: "none", cursor: "pointer" }}
+                      >
+                        <option value="normal">一般畫筆</option>
+                        <option value="spray">噴漆</option>
+                        <option value="glow">發光筆</option>
+                      </select>
+
                       <input type="color" value={brushColor} onChange={(e) => setBrushColor(e.target.value)} style={{ width: "30px", height: "30px", border: "none", padding: 0, cursor: "pointer" }} />
                       <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
                         <span style={{ fontSize: "12px", color: "#666" }}>粗細:</span>
