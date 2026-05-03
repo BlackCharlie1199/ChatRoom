@@ -6,7 +6,8 @@ import { doc, setDoc, getDoc, collection, query, onSnapshot, addDoc, serverTimes
 import './App.css'; 
 
 const EMOJI_OPTIONS = ['👍', '❤️', '😂', '😮', '🙏'];
-const GIPHY_API_KEY = "YOUR_GIPHY_API_KEY"; 
+// 【重要】：記得確認這裡是你申請的真實 API Key
+const GIPHY_API_KEY = process.env.REACT_APP_GIPHY_API_KEY; 
 
 function App() {
   const [email, setEmail] = useState("");
@@ -47,10 +48,13 @@ function App() {
 
   const [isGifOpen, setIsGifOpen] = useState(false);
   const [gifs, setGifs] = useState([]);
+  const [gifSearchTerm, setGifSearchTerm] = useState("");
 
-  // --- 【新增】：負責控制動畫顯示的狀態 ---
-  const [isFetchingUsers, setIsFetchingUsers] = useState(true); // 預設一開始就在載入好友
-  const [isFetchingChat, setIsFetchingChat] = useState(false);  // 切換聊天室時才載入
+  const [isFetchingUsers, setIsFetchingUsers] = useState(true); 
+  const [isFetchingChat, setIsFetchingChat] = useState(false);  
+
+  // --- 【新增】：控制側邊欄開關的狀態 ---
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const messagesEndRef = useRef(null);
 
@@ -86,7 +90,6 @@ function App() {
     return () => unsubscribe();
   }, [user]);
 
-  // --- 監聽聊天訊息 (加入載入動畫控制) ---
   useEffect(() => {
     if (!selectedChatId) return;
 
@@ -94,7 +97,7 @@ function App() {
       Notification.requestPermission();
     }
 
-    setIsFetchingChat(true); // 切換聊天室時，啟動載入動畫
+    setIsFetchingChat(true); 
 
     const q = query(
       collection(db, "chats", selectedChatId, "messages"),
@@ -116,7 +119,7 @@ function App() {
         }
       });
       setMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      setIsFetchingChat(false); // 資料一到，關閉載入動畫
+      setIsFetchingChat(false); 
     });
 
     return () => unsubscribe();
@@ -139,24 +142,33 @@ function App() {
     }
   }, [isDrawingMode]);
 
+  const fetchGifs = async (searchQuery = "") => {
+    try {
+      let endpoint = `https://api.giphy.com/v1/gifs/trending?api_key=${GIPHY_API_KEY}&limit=12&rating=g`;
+      if (searchQuery.trim() !== "") {
+        endpoint = `https://api.giphy.com/v1/gifs/search?api_key=${GIPHY_API_KEY}&q=${encodeURIComponent(searchQuery)}&limit=12&rating=g`;
+      }
+      const res = await fetch(endpoint);
+      const data = await res.json();
+      setGifs(data.data);
+    } catch (error) {
+      console.error("抓取 GIF 失敗:", error);
+    }
+  };
+
   useEffect(() => {
     if (isGifOpen && gifs.length === 0) {
-      const fetchGifs = async () => {
-        try {
-          const res = await fetch(`https://api.giphy.com/v1/gifs/trending?api_key=${GIPHY_API_KEY}&limit=12&rating=g`);
-          const data = await res.json();
-          setGifs(data.data);
-        } catch (error) {
-          console.error("抓取 GIF 失敗:", error);
-        }
-      };
       fetchGifs();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isGifOpen, gifs.length]);
 
-  // --- 抓取好友列表 (加入載入動畫控制) ---
+  const handleGifSearch = () => {
+    fetchGifs(gifSearchTerm);
+  };
+
   const fetchAllUsers = async () => {
-    setIsFetchingUsers(true); // 開始抓取，啟動動畫
+    setIsFetchingUsers(true); 
     try {
       const q = query(collection(db, "users"));
       const querySnapshot = await getDocs(q);
@@ -168,7 +180,7 @@ function App() {
       });
       setUsers(usersList);
     } finally {
-      setIsFetchingUsers(false); // 抓取完畢，關閉動畫
+      setIsFetchingUsers(false); 
     }
   };
 
@@ -223,6 +235,9 @@ function App() {
     setReactingMsgId(null);
     setIsInviteOpen(false);
     setIsGifOpen(false); 
+    
+    // 【新增】：在手機版點選好友後，自動收起側邊欄
+    setIsSidebarOpen(false);
   };
 
   const startGroupChat = (group) => {
@@ -235,6 +250,9 @@ function App() {
     setReactingMsgId(null);
     setIsInviteOpen(false);
     setIsGifOpen(false);
+    
+    // 【新增】：在手機版點選群組後，自動收起側邊欄
+    setIsSidebarOpen(false);
   };
 
   const handleInvite = async (userToInvite) => {
@@ -313,6 +331,7 @@ function App() {
         isEdited: false 
       });
       setIsGifOpen(false); 
+      setGifSearchTerm(""); 
     } catch (error) {
       alert("GIF 傳送失敗：" + error.message);
     } finally {
@@ -620,8 +639,11 @@ function App() {
         </div>
       )}
 
-      {/* --- 側邊欄 --- */}
-      <div className="sidebar">
+      {/* 【新增】：點擊會關閉側邊欄的防呆遮罩 */}
+      <div className={`sidebar-overlay ${isSidebarOpen ? 'open' : ''}`} onClick={() => setIsSidebarOpen(false)}></div>
+
+      {/* --- 側邊欄 (加上 isSidebarOpen 判斷 CSS 狀態) --- */}
+      <div className={`sidebar ${isSidebarOpen ? 'open' : ''}`}>
         <div className="sidebar-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span>好友與群組</span>
           <div style={{ display: "flex", gap: "10px" }}>
@@ -632,7 +654,6 @@ function App() {
         
         <div style={{ padding: "8px 15px", background: "#f9f9f9", fontSize: "12px", fontWeight: "bold", color: "#666" }}>好友私訊</div>
         <div className="user-list" style={{ flex: "none", maxHeight: "40vh", overflowY: "auto" }}>
-          {/* 【新增】：好友列表的動畫渲染 */}
           {isFetchingUsers ? (
              <div className="loader-container"><div className="spinner"></div></div>
           ) : (
@@ -664,7 +685,12 @@ function App() {
         {selectedChatId ? (
           <>
             <div className="chat-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span>{selectedChatUser?.displayName || selectedChatUser?.email?.split('@')[0]}</span>
+              
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                 {/* 【新增】：手機版專用的返回按鈕 */}
+                 <button className="mobile-only" onClick={() => { setSelectedChatId(null); setIsSidebarOpen(true); }} style={{ background: "transparent", border: "none", fontSize: "28px", cursor: "pointer", padding: "0 10px 0 0", color: "#555" }}>‹</button>
+                 <span>{selectedChatUser?.displayName || selectedChatUser?.email?.split('@')[0]}</span>
+              </div>
               
               <div style={{ display: "flex", gap: "10px", position: "relative" }}>
                 <button 
@@ -717,7 +743,6 @@ function App() {
             <div ref={chatAreaRef} style={{ flex: 1, position: "relative", overflow: "hidden", display: "flex", flexDirection: "column" }}>
               
               <div className="messages-container" style={{ flex: 1, overflowY: "auto", padding: "20px" }}>
-                {/* 【新增】：聊天室訊息的動畫渲染 */}
                 {isFetchingChat ? (
                    <div className="loader-container"><div className="spinner"></div></div>
                 ) : (
@@ -860,13 +885,37 @@ function App() {
                 </button>
 
                 {isGifOpen && (
-                  <div style={{ position: "absolute", bottom: "40px", left: "0", background: "white", padding: "10px", borderRadius: "10px", boxShadow: "0 -4px 12px rgba(0,0,0,0.15)", width: "260px", zIndex: 100 }}>
-                    <h4 style={{ margin: "0 0 10px 0", fontSize: "14px", color: "#333", borderBottom: "1px solid #eee", paddingBottom: "5px", display: "flex", justifyContent: "space-between" }}>
-                      熱門 GIF 
-                      <span onClick={() => setIsGifOpen(false)} style={{ cursor: "pointer", color: "#999" }}>✖</span>
+                  <div style={{ position: "absolute", bottom: "40px", left: "0", background: "white", padding: "10px", borderRadius: "10px", boxShadow: "0 -4px 12px rgba(0,0,0,0.15)", width: "300px", zIndex: 100 }}>
+                    <h4 style={{ margin: "0 0 10px 0", fontSize: "14px", color: "#333", borderBottom: "1px solid #eee", paddingBottom: "5px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span>{gifSearchTerm ? "搜尋結果" : "熱門 GIF"}</span>
+                      <span onClick={() => setIsGifOpen(false)} style={{ cursor: "pointer", color: "#999", fontSize: "16px" }}>✖</span>
                     </h4>
+                    
+                    <div style={{ display: "flex", gap: "5px", marginBottom: "10px" }}>
+                      <input
+                        type="text"
+                        placeholder="搜尋動圖..."
+                        value={gifSearchTerm}
+                        onChange={(e) => setGifSearchTerm(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                             e.preventDefault(); 
+                             handleGifSearch();
+                          }
+                        }}
+                        style={{ flex: 1, padding: "5px 8px", borderRadius: "15px", border: "1px solid #ccc", outline: "none", fontSize: "12px" }}
+                      />
+                      <button 
+                        type="button" 
+                        onClick={handleGifSearch} 
+                        style={{ background: "#06C755", color: "white", border: "none", padding: "5px 10px", borderRadius: "15px", cursor: "pointer", fontSize: "12px", fontWeight: "bold" }}
+                      >
+                        搜尋
+                      </button>
+                    </div>
+
                     {gifs.length === 0 ? (
-                      <div style={{ textAlign: "center", padding: "20px", color: "#999", fontSize: "12px" }}>載入中... (請確認 API Key 是否正確設定)</div>
+                      <div style={{ textAlign: "center", padding: "20px", color: "#999", fontSize: "12px" }}>載入中或找不到結果...</div>
                     ) : (
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", maxHeight: "250px", overflowY: "auto" }}>
                         {gifs.map(gif => (
@@ -896,7 +945,11 @@ function App() {
             </form>
           </>
         ) : (
-          <div className="empty-chat">請選擇左側的好友開始聊天</div>
+          <div className="empty-chat" style={{ position: "relative" }}>
+            {/* 【新增】：在尚未選擇聊天對象的空白畫面時，也提供漢堡選單 */}
+            <button className="mobile-only" onClick={() => setIsSidebarOpen(true)} style={{ position: "absolute", top: "20px", left: "20px", background: "transparent", border: "none", fontSize: "28px", cursor: "pointer", color: "#666" }}>☰</button>
+            請選擇左側的好友開始聊天
+          </div>
         )}
       </div>
     </div>

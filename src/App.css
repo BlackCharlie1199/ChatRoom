@@ -276,3 +276,53 @@ body {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
 }
+
+.sidebar-overlay {
+  display: none;
+}
+
+/* 預設在電腦版隱藏這些手機專用按鈕 */
+.mobile-only {
+  display: none;
+}
+
+/* 當螢幕寬度小於 768px 時觸發手機版版型 */
+@media (max-width: 768px) {
+  .mobile-only {
+    display: inline-block;
+  }
+
+  /* 側邊欄變成絕對定位，預設躲在畫面左側外面 */
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: -100%;
+    width: 280px; /* 側邊欄寬度 */
+    height: 100%;
+    z-index: 1000;
+    transition: left 0.3s ease-in-out; /* 平滑滑出動畫 */
+    box-shadow: 4px 0 15px rgba(0,0,0,0.1);
+  }
+  
+  /* 當側邊欄打開時，回到畫面內 */
+  .sidebar.open {
+    left: 0;
+  }
+
+  /* 側邊欄打開時的半透明黑色背景遮罩 */
+  .sidebar-overlay.open {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.5);
+    z-index: 999;
+  }
+
+  /* 聊天區域在手機版佔滿 100% 畫面 */
+  .chat-area {
+    width: 100%;
+  }
+}
