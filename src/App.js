@@ -6,7 +6,6 @@ import { doc, setDoc, getDoc, collection, query, onSnapshot, addDoc, serverTimes
 import './App.css'; 
 
 const EMOJI_OPTIONS = ['👍', '❤️', '😂', '😮', '🙏'];
-// 【重要】：記得確認這裡是你申請的真實 API Key
 const GIPHY_API_KEY = process.env.REACT_APP_GIPHY_API_KEY; 
 
 function App() {
@@ -53,7 +52,6 @@ function App() {
   const [isFetchingUsers, setIsFetchingUsers] = useState(true); 
   const [isFetchingChat, setIsFetchingChat] = useState(false);  
 
-  // --- 【新增】：控制側邊欄開關的狀態 ---
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const messagesEndRef = useRef(null);
@@ -235,8 +233,6 @@ function App() {
     setReactingMsgId(null);
     setIsInviteOpen(false);
     setIsGifOpen(false); 
-    
-    // 【新增】：在手機版點選好友後，自動收起側邊欄
     setIsSidebarOpen(false);
   };
 
@@ -250,8 +246,6 @@ function App() {
     setReactingMsgId(null);
     setIsInviteOpen(false);
     setIsGifOpen(false);
-    
-    // 【新增】：在手機版點選群組後，自動收起側邊欄
     setIsSidebarOpen(false);
   };
 
@@ -614,8 +608,9 @@ function App() {
     <div className="app-container">
       {/* Profile Modal */}
       {isProfileOpen && (
-        <div style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", backgroundColor: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000 }}>
-          <div style={{ backgroundColor: "white", padding: "30px", borderRadius: "10px", width: "350px", maxHeight: "90vh", overflowY: "auto", textAlign: "center", boxShadow: "0 4px 12px rgba(0,0,0,0.2)" }}>
+        /* 【修正】：將 zIndex 從原本的 1000 提升至 2000，確保不會被側邊欄蓋住 */
+        <div style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", backgroundColor: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 2000 }}>
+          <div className="profile-modal">
             <h3 style={{ marginTop: 0, color: "#333" }}>個人資料設定</h3>
             <div style={{ position: "relative", width: "100px", height: "100px", margin: "0 auto 20px" }}>
               {editAvatar ? (
@@ -800,7 +795,7 @@ function App() {
                               <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
                                 <button onClick={() => setReactingMsgId(reactingMsgId === m.id ? null : m.id)} style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: "14px", opacity: 0.6, padding: 0 }} title="加入表情">😀</button>
                                 {reactingMsgId === m.id && (
-                                  <div style={{ position: "absolute", bottom: "100%", left: isMine ? "auto" : "0", right: isMine ? "0" : "auto", background: "white", padding: "5px 10px", borderRadius: "20px", boxShadow: "0 2px 10px rgba(0,0,0,0.15)", display: "flex", gap: "8px", zIndex: 100 }}>
+                                  <div className={`emoji-menu ${isMine ? 'mine' : 'other'}`}>
                                     {EMOJI_OPTIONS.map(emoji => (
                                       <span key={emoji} onClick={() => toggleReaction(m, emoji)} style={{ cursor: "pointer", fontSize: "18px", transition: "transform 0.1s" }} onMouseOver={(e) => e.target.style.transform="scale(1.3)"} onMouseOut={(e) => e.target.style.transform="scale(1)"}>{emoji}</span>
                                     ))}
@@ -842,32 +837,35 @@ function App() {
 
               {isDrawingMode && (
                 <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 50, backgroundColor: "rgba(255, 255, 255, 0.8)", cursor: "crosshair" }}>
-                   <div style={{ position: "absolute", top: "10px", left: "50%", transform: "translateX(-50%)", background: "white", padding: "10px 20px", borderRadius: "20px", display: "flex", gap: "15px", alignItems: "center", boxShadow: "0 4px 12px rgba(0,0,0,0.1)", zIndex: 60 }}>
-                      <span style={{ fontSize: "14px", fontWeight: "bold", color: "#555" }}>🎨 畫貼圖</span>
+                   <div className="drawing-toolbar">
+                      <span style={{ fontSize: "14px", fontWeight: "bold", color: "#555", flexShrink: 0 }}>🎨 畫貼圖</span>
                       
                       <select 
+                        className="brush-select"
                         value={brushType} 
                         onChange={(e) => setBrushType(e.target.value)} 
-                        style={{ padding: "4px 8px", borderRadius: "5px", border: "1px solid #ccc", outline: "none", cursor: "pointer" }}
                       >
                         <option value="normal">一般畫筆</option>
-                        <option value="spray">噴漆</option>
-                        <option value="glow">發光筆</option>
+                        <option value="spray">噴漆效果</option>
+                        <option value="glow">發光霓虹</option>
                       </select>
 
-                      <input type="color" value={brushColor} onChange={(e) => setBrushColor(e.target.value)} style={{ width: "30px", height: "30px", border: "none", padding: 0, cursor: "pointer" }} />
-                      <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+                      <input type="color" value={brushColor} onChange={(e) => setBrushColor(e.target.value)} style={{ width: "30px", height: "30px", border: "none", padding: 0, cursor: "pointer", flexShrink: 0, borderRadius: "50%", overflow: "hidden" }} />
+                      <div style={{ display: "flex", alignItems: "center", gap: "5px", flexShrink: 0 }}>
                         <span style={{ fontSize: "12px", color: "#666" }}>粗細:</span>
-                        <input type="range" min="1" max="20" value={brushSize} onChange={(e) => setBrushSize(parseInt(e.target.value))} style={{ width: "80px" }} />
+                        <input type="range" min="1" max="20" value={brushSize} onChange={(e) => setBrushSize(parseInt(e.target.value))} style={{ width: "70px" }} />
                       </div>
-                      <div style={{ width: "1px", height: "20px", background: "#ddd", margin: "0 5px" }}></div>
-                      <button onClick={clearCanvas} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#ff4d4f", fontSize: "14px", fontWeight: "bold" }}>清除</button>
-                      <button onClick={() => setIsDrawingMode(false)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#666", fontSize: "14px" }}>取消</button>
-                      <button onClick={sendCustomSticker} disabled={isUploading} style={{ background: "#06C755", color: "white", border: "none", padding: "5px 15px", borderRadius: "15px", cursor: "pointer", fontWeight: "bold" }}>
-                        {isUploading ? "傳送中..." : "送出"}
-                      </button>
+                      <div style={{ width: "1px", height: "20px", background: "#ddd", margin: "0 5px", display: "none" }}></div> 
+                      
+                      <div style={{ display: "flex", gap: "10px", flexShrink: 0 }}>
+                        <button onClick={clearCanvas} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#ff4d4f", fontSize: "14px", fontWeight: "bold" }}>清除</button>
+                        <button onClick={() => setIsDrawingMode(false)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#666", fontSize: "14px" }}>取消</button>
+                        <button onClick={sendCustomSticker} disabled={isUploading} style={{ background: "#06C755", color: "white", border: "none", padding: "6px 15px", borderRadius: "15px", cursor: "pointer", fontWeight: "bold" }}>
+                          {isUploading ? "傳送中..." : "送出"}
+                        </button>
+                      </div>
                    </div>
-                   <canvas ref={canvasRef} onMouseDown={startDrawing} onMouseMove={draw} onMouseUp={stopDrawing} onMouseOut={stopDrawing} style={{ display: "block" }} />
+                   <canvas ref={canvasRef} onMouseDown={startDrawing} onMouseMove={draw} onMouseUp={stopDrawing} onMouseOut={stopDrawing} onTouchStart={(e)=>{ e.preventDefault(); startDrawing(e.touches[0]); }} onTouchMove={(e)=>{ e.preventDefault(); draw(e.touches[0]); }} onTouchEnd={stopDrawing} style={{ display: "block", touchAction: "none" }} />
                 </div>
               )}
             </div>
@@ -946,7 +944,6 @@ function App() {
           </>
         ) : (
           <div className="empty-chat" style={{ position: "relative" }}>
-            {/* 【新增】：在尚未選擇聊天對象的空白畫面時，也提供漢堡選單 */}
             <button className="mobile-only" onClick={() => setIsSidebarOpen(true)} style={{ position: "absolute", top: "20px", left: "20px", background: "transparent", border: "none", fontSize: "28px", cursor: "pointer", color: "#666" }}>☰</button>
             請選擇左側的好友開始聊天
           </div>
