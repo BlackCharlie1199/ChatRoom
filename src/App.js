@@ -6,6 +6,7 @@ import { doc, setDoc, getDoc, collection, query, onSnapshot, addDoc, serverTimes
 import './App.css'; 
 
 const EMOJI_OPTIONS = ['👍', '❤️', '😂', '😮', '🙏'];
+const GIPHY_API_KEY = "YOUR_GIPHY_API_KEY"; 
 
 function App() {
   const [email, setEmail] = useState("");
@@ -44,6 +45,13 @@ function App() {
   const [groups, setGroups] = useState([]);
   const [isInviteOpen, setIsInviteOpen] = useState(false);
 
+  const [isGifOpen, setIsGifOpen] = useState(false);
+  const [gifs, setGifs] = useState([]);
+
+  // --- 【新增】：負責控制動畫顯示的狀態 ---
+  const [isFetchingUsers, setIsFetchingUsers] = useState(true); // 預設一開始就在載入好友
+  const [isFetchingChat, setIsFetchingChat] = useState(false);  // 切換聊天室時才載入
+
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -78,12 +86,15 @@ function App() {
     return () => unsubscribe();
   }, [user]);
 
+  // --- 監聽聊天訊息 (加入載入動畫控制) ---
   useEffect(() => {
     if (!selectedChatId) return;
 
     if ("Notification" in window && Notification.permission === "default") {
       Notification.requestPermission();
     }
+
+    setIsFetchingChat(true); // 切換聊天室時，啟動載入動畫
 
     const q = query(
       collection(db, "chats", selectedChatId, "messages"),
@@ -99,12 +110,13 @@ function App() {
           if (!isMine && !document.hasFocus() && Notification.permission === "granted") {
             const senderName = newMsg.senderEmail.split('@')[0];
             new Notification(`NTHU Chat: 新訊息來自 ${senderName}`, {
-              body: newMsg.text ? newMsg.text : (newMsg.isCustomSticker ? "傳送了一個手繪貼圖 🎨" : "傳送了一張圖片 🖼️"),
+              body: newMsg.text ? newMsg.text : (newMsg.isCustomSticker ? "傳送了一個手繪貼圖 🎨" : "傳送了一張圖片/GIF 🖼️"),
             });
           }
         }
       });
       setMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setIsFetchingChat(false); // 資料一到，關閉載入動畫
     });
 
     return () => unsubscribe();
@@ -127,16 +139,37 @@ function App() {
     }
   }, [isDrawingMode]);
 
+  useEffect(() => {
+    if (isGifOpen && gifs.length === 0) {
+      const fetchGifs = async () => {
+        try {
+          const res = await fetch(`https://api.giphy.com/v1/gifs/trending?api_key=${GIPHY_API_KEY}&limit=12&rating=g`);
+          const data = await res.json();
+          setGifs(data.data);
+        } catch (error) {
+          console.error("抓取 GIF 失敗:", error);
+        }
+      };
+      fetchGifs();
+    }
+  }, [isGifOpen, gifs.length]);
+
+  // --- 抓取好友列表 (加入載入動畫控制) ---
   const fetchAllUsers = async () => {
-    const q = query(collection(db, "users"));
-    const querySnapshot = await getDocs(q);
-    const usersList = [];
-    querySnapshot.forEach((doc) => {
-      if (doc.id !== auth.currentUser.uid) {
-        usersList.push({ id: doc.id, ...doc.data() });
-      }
-    });
-    setUsers(usersList);
+    setIsFetchingUsers(true); // 開始抓取，啟動動畫
+    try {
+      const q = query(collection(db, "users"));
+      const querySnapshot = await getDocs(q);
+      const usersList = [];
+      querySnapshot.forEach((doc) => {
+        if (doc.id !== auth.currentUser.uid) {
+          usersList.push({ id: doc.id, ...doc.data() });
+        }
+      });
+      setUsers(usersList);
+    } finally {
+      setIsFetchingUsers(false); // 抓取完畢，關閉動畫
+    }
   };
 
   const fetchCurrentUserData = async (uid) => {
@@ -189,6 +222,7 @@ function App() {
     setIsDrawingMode(false); 
     setReactingMsgId(null);
     setIsInviteOpen(false);
+    setIsGifOpen(false); 
   };
 
   const startGroupChat = (group) => {
@@ -200,6 +234,7 @@ function App() {
     setIsDrawingMode(false);
     setReactingMsgId(null);
     setIsInviteOpen(false);
+    setIsGifOpen(false);
   };
 
   const handleInvite = async (userToInvite) => {
@@ -265,6 +300,26 @@ function App() {
     }
   };
 
+  const sendGif = async (gifUrl) => {
+    if (!selectedChatId) return;
+    setIsUploading(true);
+    try {
+      await addDoc(collection(db, "chats", selectedChatId, "messages"), {
+        text: "", 
+        imageUrl: gifUrl, 
+        senderId: auth.currentUser.uid,
+        senderEmail: auth.currentUser.email,
+        createdAt: serverTimestamp(),
+        isEdited: false 
+      });
+      setIsGifOpen(false); 
+    } catch (error) {
+      alert("GIF 傳送失敗：" + error.message);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (!file || !selectedChatId) return;
@@ -307,7 +362,6 @@ function App() {
     e.target.value = null; 
   };
 
-  // --- 【修改】：重構繪圖邏輯以支援噴漆效果 ---
   const startDrawing = (e) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -317,12 +371,11 @@ function App() {
     const y = e.clientY - rect.top;
 
     ctx.strokeStyle = brushColor;
-    ctx.fillStyle = brushColor; // 噴漆會用到 fillStyle
+    ctx.fillStyle = brushColor; 
     ctx.lineWidth = brushSize;
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
 
-    // 重置所有特效，避免切換筆刷時互相干擾
     ctx.globalAlpha = 1.0;
     ctx.shadowBlur = 0;    
 
@@ -332,7 +385,6 @@ function App() {
     }
 
     if (brushType !== 'spray') {
-      // 如果不是噴漆，才需要開啟連續路徑
       ctx.beginPath();
       ctx.moveTo(x, y);
     }
@@ -349,27 +401,19 @@ function App() {
     const y = e.clientY - rect.top;
     
     if (brushType === 'spray') {
-      // 噴漆邏輯：在滑鼠周圍隨機產生細小的粒子
-      // 密度與噴漆範圍根據 brushSize 調整
       const density = brushSize * 4; 
       const sprayRadius = brushSize * 1.5; 
       
       for (let i = 0; i < density; i++) {
-        // 利用圓極座標隨機散佈粒子
         const angle = Math.random() * Math.PI * 2;
         const radius = Math.random() * sprayRadius;
         const dotX = x + Math.cos(angle) * radius;
         const dotY = y + Math.sin(angle) * radius;
-        
-        // 畫出微小的方塊當作噴漆粒子
         ctx.fillRect(dotX, dotY, 1.5, 1.5); 
       }
     } else {
-      // 一般與發光筆邏輯：連續畫線
       ctx.lineTo(x, y);
       ctx.stroke();
-      
-      // 畫完重啟路徑，避免重複疊加
       ctx.beginPath();
       ctx.moveTo(x, y);
     }
@@ -588,16 +632,21 @@ function App() {
         
         <div style={{ padding: "8px 15px", background: "#f9f9f9", fontSize: "12px", fontWeight: "bold", color: "#666" }}>好友私訊</div>
         <div className="user-list" style={{ flex: "none", maxHeight: "40vh", overflowY: "auto" }}>
-          {users.map(u => (
-            <div key={u.uid} className={`user-item ${selectedChatId === [auth.currentUser.uid, u.uid].sort().join("_") ? 'active' : ''}`} onClick={() => startChat(u)}>
-              {u.photoURL ? (
-                <img src={u.photoURL} alt="avatar" className="user-avatar" style={{ objectFit: "cover", padding: 0 }} />
-              ) : (
-                <div className="user-avatar">{u.email.charAt(0).toUpperCase()}</div>
-              )}
-              <div>{u.displayName || u.email.split('@')[0]}</div>
-            </div>
-          ))}
+          {/* 【新增】：好友列表的動畫渲染 */}
+          {isFetchingUsers ? (
+             <div className="loader-container"><div className="spinner"></div></div>
+          ) : (
+            users.map(u => (
+              <div key={u.uid} className={`user-item ${selectedChatId === [auth.currentUser.uid, u.uid].sort().join("_") ? 'active' : ''}`} onClick={() => startChat(u)}>
+                {u.photoURL ? (
+                  <img src={u.photoURL} alt="avatar" className="user-avatar" style={{ objectFit: "cover", padding: 0 }} />
+                ) : (
+                  <div className="user-avatar">{u.email.charAt(0).toUpperCase()}</div>
+                )}
+                <div>{u.displayName || u.email.split('@')[0]}</div>
+              </div>
+            ))
+          )}
         </div>
 
         <div style={{ padding: "8px 15px", background: "#f9f9f9", fontSize: "12px", fontWeight: "bold", color: "#666", borderTop: "1px solid #eee" }}>我的群組</div>
@@ -668,95 +717,102 @@ function App() {
             <div ref={chatAreaRef} style={{ flex: 1, position: "relative", overflow: "hidden", display: "flex", flexDirection: "column" }}>
               
               <div className="messages-container" style={{ flex: 1, overflowY: "auto", padding: "20px" }}>
-                {filteredMessages.map(m => {
-                  const isMine = m.senderId === auth.currentUser.uid;
-                  const isEditingThis = editingMsgId === m.id;
-                  
-                  const senderInfo = isMine ? currentUserData : users.find(u => u.uid === m.senderId);
-                  const displayName = senderInfo?.displayName || m.senderEmail.split('@')[0];
-                  const avatar = senderInfo?.photoURL;
-
-                  const reactionCounts = {};
-                  if (m.reactions) {
-                    Object.values(m.reactions).forEach(emoji => {
-                      reactionCounts[emoji] = (reactionCounts[emoji] || 0) + 1;
-                    });
-                  }
-
-                  return (
-                    <div key={m.id} className={`message-wrapper ${isMine ? 'mine' : 'other'}`} style={{ display: 'flex', flexDirection: isMine ? 'row-reverse' : 'row', alignItems: 'flex-end', maxWidth: '100%', marginBottom: "15px" }}>
+                {/* 【新增】：聊天室訊息的動畫渲染 */}
+                {isFetchingChat ? (
+                   <div className="loader-container"><div className="spinner"></div></div>
+                ) : (
+                  <>
+                    {filteredMessages.map(m => {
+                      const isMine = m.senderId === auth.currentUser.uid;
+                      const isEditingThis = editingMsgId === m.id;
                       
-                      {!isMine && (
-                        <div style={{ marginRight: '10px', marginBottom: '15px' }}>
-                          {avatar ? (
-                             <img src={avatar} alt="avatar" style={{ width: "35px", height: "35px", borderRadius: "50%", objectFit: "cover" }} />
-                          ) : (
-                             <div style={{ width: "35px", height: "35px", borderRadius: "50%", backgroundColor: "#ccc", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", fontWeight: "bold" }}>
-                               {m.senderEmail.charAt(0).toUpperCase()}
-                             </div>
-                          )}
-                        </div>
-                      )}
+                      const senderInfo = isMine ? currentUserData : users.find(u => u.uid === m.senderId);
+                      const displayName = senderInfo?.displayName || m.senderEmail.split('@')[0];
+                      const avatar = senderInfo?.photoURL;
 
-                      <div style={{ display: 'flex', flexDirection: 'column', maxWidth: m.isCustomSticker ? '100%' : '70%', alignItems: isMine ? 'flex-end' : 'flex-start' }}>
-                        <div className="message-sender" style={{ marginLeft: 0, marginRight: 0 }}>{displayName}</div>
-                        
-                        <div style={{ display: "flex", alignItems: "flex-end", gap: "5px", flexDirection: isMine ? "row-reverse" : "row" }}>
+                      const reactionCounts = {};
+                      if (m.reactions) {
+                        Object.values(m.reactions).forEach(emoji => {
+                          reactionCounts[emoji] = (reactionCounts[emoji] || 0) + 1;
+                        });
+                      }
+
+                      return (
+                        <div key={m.id} className={`message-wrapper ${isMine ? 'mine' : 'other'}`} style={{ display: 'flex', flexDirection: isMine ? 'row-reverse' : 'row', alignItems: 'flex-end', maxWidth: '100%', marginBottom: "15px" }}>
                           
-                          {m.isCustomSticker ? (
-                             <div style={{ position: "relative" }}>
-                               <img src={m.imageUrl} alt="custom-sticker" style={{ width: "100%", maxHeight: "400px", objectFit: "contain", display: "block", pointerEvents: "none" }} />
-                             </div>
-                          ) : (
-                            <div className="message-bubble" style={{ opacity: isEditingThis ? 0.5 : 1, padding: m.imageUrl ? "5px" : "10px 15px", backgroundColor: m.imageUrl ? "transparent" : "" }}>
-                              {m.imageUrl ? (
-                                <img src={m.imageUrl} alt="chat-img" style={{ maxWidth: "200px", borderRadius: "10px", display: "block" }} />
+                          {!isMine && (
+                            <div style={{ marginRight: '10px', marginBottom: '15px' }}>
+                              {avatar ? (
+                                 <img src={avatar} alt="avatar" style={{ width: "35px", height: "35px", borderRadius: "50%", objectFit: "cover" }} />
                               ) : (
-                                m.text
+                                 <div style={{ width: "35px", height: "35px", borderRadius: "50%", backgroundColor: "#ccc", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", fontWeight: "bold" }}>
+                                   {m.senderEmail.charAt(0).toUpperCase()}
+                                 </div>
                               )}
-                              {m.isEdited && !m.imageUrl && <span style={{ fontSize: "10px", color: isMine ? "#444" : "#999", marginLeft: "6px" }}>(已編輯)</span>}
                             </div>
                           )}
 
-                          <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
-                            <button onClick={() => setReactingMsgId(reactingMsgId === m.id ? null : m.id)} style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: "14px", opacity: 0.6, padding: 0 }} title="加入表情">😀</button>
-                            {reactingMsgId === m.id && (
-                              <div style={{ position: "absolute", bottom: "100%", left: isMine ? "auto" : "0", right: isMine ? "0" : "auto", background: "white", padding: "5px 10px", borderRadius: "20px", boxShadow: "0 2px 10px rgba(0,0,0,0.15)", display: "flex", gap: "8px", zIndex: 100 }}>
-                                {EMOJI_OPTIONS.map(emoji => (
-                                  <span key={emoji} onClick={() => toggleReaction(m, emoji)} style={{ cursor: "pointer", fontSize: "18px", transition: "transform 0.1s" }} onMouseOver={(e) => e.target.style.transform="scale(1.3)"} onMouseOut={(e) => e.target.style.transform="scale(1)"}>{emoji}</span>
+                          <div style={{ display: 'flex', flexDirection: 'column', maxWidth: m.isCustomSticker ? '100%' : '70%', alignItems: isMine ? 'flex-end' : 'flex-start' }}>
+                            <div className="message-sender" style={{ marginLeft: 0, marginRight: 0 }}>{displayName}</div>
+                            
+                            <div style={{ display: "flex", alignItems: "flex-end", gap: "5px", flexDirection: isMine ? "row-reverse" : "row" }}>
+                              
+                              {m.isCustomSticker ? (
+                                 <div style={{ position: "relative" }}>
+                                   <img src={m.imageUrl} alt="custom-sticker" style={{ width: "100%", maxHeight: "400px", objectFit: "contain", display: "block", pointerEvents: "none" }} />
+                                 </div>
+                              ) : (
+                                <div className="message-bubble" style={{ opacity: isEditingThis ? 0.5 : 1, padding: m.imageUrl ? "5px" : "10px 15px", backgroundColor: m.imageUrl ? "transparent" : "" }}>
+                                  {m.imageUrl ? (
+                                    <img src={m.imageUrl} alt="chat-img" style={{ maxWidth: "200px", borderRadius: "10px", display: "block" }} />
+                                  ) : (
+                                    m.text
+                                  )}
+                                  {m.isEdited && !m.imageUrl && <span style={{ fontSize: "10px", color: isMine ? "#444" : "#999", marginLeft: "6px" }}>(已編輯)</span>}
+                                </div>
+                              )}
+
+                              <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+                                <button onClick={() => setReactingMsgId(reactingMsgId === m.id ? null : m.id)} style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: "14px", opacity: 0.6, padding: 0 }} title="加入表情">😀</button>
+                                {reactingMsgId === m.id && (
+                                  <div style={{ position: "absolute", bottom: "100%", left: isMine ? "auto" : "0", right: isMine ? "0" : "auto", background: "white", padding: "5px 10px", borderRadius: "20px", boxShadow: "0 2px 10px rgba(0,0,0,0.15)", display: "flex", gap: "8px", zIndex: 100 }}>
+                                    {EMOJI_OPTIONS.map(emoji => (
+                                      <span key={emoji} onClick={() => toggleReaction(m, emoji)} style={{ cursor: "pointer", fontSize: "18px", transition: "transform 0.1s" }} onMouseOver={(e) => e.target.style.transform="scale(1.3)"} onMouseOut={(e) => e.target.style.transform="scale(1)"}>{emoji}</span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+
+                              {isMine && (
+                                <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                                  <button onClick={() => handleUnsend(m.id)} style={{ border: "none", background: "transparent", color: "#ff4d4f", fontSize: "12px", cursor: "pointer", padding: "0" }}>收回</button>
+                                  {!m.imageUrl && !m.isCustomSticker && (
+                                    <button onClick={() => startEdit(m)} style={{ border: "none", background: "transparent", color: "#666", fontSize: "12px", cursor: "pointer", padding: "0" }}>編輯</button>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+
+                            {Object.keys(reactionCounts).length > 0 && (
+                              <div style={{ display: "flex", gap: "5px", marginTop: "4px", alignSelf: isMine ? "flex-end" : "flex-start" }}>
+                                {Object.entries(reactionCounts).map(([emoji, count]) => (
+                                  <div key={emoji} onClick={() => toggleReaction(m, emoji)} style={{ background: "rgba(255,255,255,0.9)", border: "1px solid #ddd", padding: "2px 6px", borderRadius: "12px", fontSize: "12px", cursor: "pointer", boxShadow: "0 1px 2px rgba(0,0,0,0.05)" }}>
+                                    {emoji} <span style={{ color: "#666", fontWeight: "bold" }}>{count}</span>
+                                  </div>
                                 ))}
                               </div>
                             )}
+                            
                           </div>
-
-                          {isMine && (
-                            <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                              <button onClick={() => handleUnsend(m.id)} style={{ border: "none", background: "transparent", color: "#ff4d4f", fontSize: "12px", cursor: "pointer", padding: "0" }}>收回</button>
-                              {!m.imageUrl && !m.isCustomSticker && (
-                                <button onClick={() => startEdit(m)} style={{ border: "none", background: "transparent", color: "#666", fontSize: "12px", cursor: "pointer", padding: "0" }}>編輯</button>
-                              )}
-                            </div>
-                          )}
                         </div>
-
-                        {Object.keys(reactionCounts).length > 0 && (
-                          <div style={{ display: "flex", gap: "5px", marginTop: "4px", alignSelf: isMine ? "flex-end" : "flex-start" }}>
-                            {Object.entries(reactionCounts).map(([emoji, count]) => (
-                              <div key={emoji} onClick={() => toggleReaction(m, emoji)} style={{ background: "rgba(255,255,255,0.9)", border: "1px solid #ddd", padding: "2px 6px", borderRadius: "12px", fontSize: "12px", cursor: "pointer", boxShadow: "0 1px 2px rgba(0,0,0,0.05)" }}>
-                                {emoji} <span style={{ color: "#666", fontWeight: "bold" }}>{count}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        
-                      </div>
-                    </div>
-                  );
-                })}
-                {searchTerm && filteredMessages.length === 0 && (
-                  <div style={{ textAlign: "center", color: "#666", marginTop: "20px" }}>找不到包含「{searchTerm}」的訊息</div>
+                      );
+                    })}
+                    {searchTerm && filteredMessages.length === 0 && (
+                      <div style={{ textAlign: "center", color: "#666", marginTop: "20px" }}>找不到包含「{searchTerm}」的訊息</div>
+                    )}
+                    <div ref={messagesEndRef} /> 
+                  </>
                 )}
-                <div ref={messagesEndRef} /> 
               </div>
 
               {isDrawingMode && (
@@ -764,7 +820,6 @@ function App() {
                    <div style={{ position: "absolute", top: "10px", left: "50%", transform: "translateX(-50%)", background: "white", padding: "10px 20px", borderRadius: "20px", display: "flex", gap: "15px", alignItems: "center", boxShadow: "0 4px 12px rgba(0,0,0,0.1)", zIndex: 60 }}>
                       <span style={{ fontSize: "14px", fontWeight: "bold", color: "#555" }}>🎨 畫貼圖</span>
                       
-                      {/* 【修改】：將「螢光筆」替換為「噴漆」 */}
                       <select 
                         value={brushType} 
                         onChange={(e) => setBrushType(e.target.value)} 
@@ -793,6 +848,42 @@ function App() {
             </div>
 
             <form className="input-area" onSubmit={sendMessage} style={{ alignItems: "center", position: "relative", zIndex: 60 }}>
+              
+              <div style={{ position: "relative" }}>
+                <button 
+                  type="button" 
+                  onClick={() => setIsGifOpen(!isGifOpen)} 
+                  style={{ background: isGifOpen ? "#e0e0e0" : "transparent", border: "none", fontSize: "20px", cursor: "pointer", padding: "0 10px", borderRadius: "50%" }} 
+                  title="傳送 GIF"
+                >
+                  🎬
+                </button>
+
+                {isGifOpen && (
+                  <div style={{ position: "absolute", bottom: "40px", left: "0", background: "white", padding: "10px", borderRadius: "10px", boxShadow: "0 -4px 12px rgba(0,0,0,0.15)", width: "260px", zIndex: 100 }}>
+                    <h4 style={{ margin: "0 0 10px 0", fontSize: "14px", color: "#333", borderBottom: "1px solid #eee", paddingBottom: "5px", display: "flex", justifyContent: "space-between" }}>
+                      熱門 GIF 
+                      <span onClick={() => setIsGifOpen(false)} style={{ cursor: "pointer", color: "#999" }}>✖</span>
+                    </h4>
+                    {gifs.length === 0 ? (
+                      <div style={{ textAlign: "center", padding: "20px", color: "#999", fontSize: "12px" }}>載入中... (請確認 API Key 是否正確設定)</div>
+                    ) : (
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", maxHeight: "250px", overflowY: "auto" }}>
+                        {gifs.map(gif => (
+                          <img
+                            key={gif.id}
+                            src={gif.images.fixed_height_small.url} 
+                            alt={gif.title}
+                            onClick={() => sendGif(gif.images.fixed_width.url)} 
+                            style={{ width: "100%", height: "80px", objectFit: "cover", cursor: "pointer", borderRadius: "5px" }}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               <button type="button" onClick={() => setIsDrawingMode(!isDrawingMode)} style={{ background: isDrawingMode ? "#e0e0e0" : "transparent", border: "none", fontSize: "20px", cursor: "pointer", padding: "0 10px", borderRadius: "50%" }} title="手繪貼圖">🖌️</button>
               <input type="file" accept="image/*" id="image-upload" style={{ display: "none" }} onChange={handleImageUpload} />
               <button type="button" onClick={() => document.getElementById('image-upload').click()} style={{ background: "none", border: "none", fontSize: "20px", cursor: "pointer", padding: "0 10px", opacity: (isSearchOpen || isUploading || isDrawingMode) ? 0.5 : 1 }} disabled={isSearchOpen || isUploading || isDrawingMode} title="傳送圖片">
