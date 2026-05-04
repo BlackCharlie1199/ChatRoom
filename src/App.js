@@ -6,7 +6,8 @@ import { doc, setDoc, getDoc, collection, query, onSnapshot, addDoc, serverTimes
 import './App.css'; 
 
 const EMOJI_OPTIONS = ['👍', '❤️', '😂', '😮', '🙏'];
-const GIPHY_API_KEY = process.env.REACT_APP_GIPHY_API_KEY; 
+const GIPHY_API_KEY = "1xi47lbnZMCONVWFfvsAPpl1yBWlrjVg";
+// const GIPHY_API_KEY = process.env.REACT_APP_GIPHY_API_KEY; 
 
 function App() {
   const [email, setEmail] = useState("");
