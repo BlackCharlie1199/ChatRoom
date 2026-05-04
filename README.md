@@ -16,12 +16,26 @@ You may also see any lint errors in the console.
 
 ## Project Building & Deployment
 
-### `npm run build`
+### Prerequisites
 
-Builds the app for production to the `build` folder.\
-Your app is ready to be deployed!
+* **npm:** version `10.8.2` or higher
 
-### `firebase deploy`
+---
+
+```bash
+npm install
+```
+
+Install necessary dependencies
+```bash
+npm run build
+```
+
+Builds the app for production to the `build` folder.
+
+```bash
+firebase deploy
+```
 
 Hosts web page on the firebase according to the `build` folder we created in the previous step. \
 Open `http://your_project_name.web.app/` to visit your website.
